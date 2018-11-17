@@ -25,7 +25,7 @@ deactivate
 ```
 ## Experiment Ideas:
 - [x] Get a simple neutal network-based regression to work.
-- [] Investigate eliminating magnitude of gradient. It would just tell you which direction to increment. To get convergence, may need to decrease step size over time. 
-- [] Explore ANN topology space by not resetting all parameters of the network - add just a few neurons at a time — slight changes to topology might allow 
+- [ ] Investigate eliminating magnitude of gradient. It would just tell you which direction to increment. To get convergence, may need to decrease step size over time. 
+- [ ] Explore ANN topology space by not resetting all parameters of the network - add just a few neurons at a time — slight changes to topology might allow 
 for a kind of pseudo-transfer learning to happen. If parametrized elegantly, the space could be searched by a reinforcement learning or genetic algorithm. 
-- [] ^^^ What if a network complexity score could be assigned to each point in the parameter space? Then the optimization/search algorithm could not just take into account accuracy, but also complexity, and attempt to create the most efficient (accuracy/complexity, or some more sophisticated cost function) network. 
+- [ ] ^^^ What if a network complexity score could be assigned to each point in the parameter space? Then the optimization/search algorithm could not just take into account accuracy, but also complexity, and attempt to create the most efficient (accuracy/complexity, or some more sophisticated cost function) network. 
