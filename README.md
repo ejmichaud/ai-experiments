@@ -16,13 +16,24 @@
 Various AI and Machine Learning experiments. The goal is to have a well-organized, central location for exploring ideas, original and otherwise, around these topics. 
 
 ## Getting things running
-To activate the python virtual environment on the good'ol trusty laptop, simply use the `mlenv` command, an alias declared in `~/.bash_profile`. If you are reinstalling this repo on another machine, create the venv like so:
+**To Eric**: To activate the python virtual environment on your good'ol trusty laptop, simply use the `mlenv` command, an alias declared in `~/.bash_profile`. 
+
+If you are reinstalling this repo on another machine, create the venv like so:
 ```
 virtualenv -p $(which python3) venv
 source venv/bin/activate
 pip install -r requirements.txt
-deactivate
 ```
+Then create a new jupyter notebook kernel using the virtual environment like so:
+```
+python -m ipykernel install --user --name mlenv --display-name "Python 3 (mlenv)"
+```
+And launch the notebook with:
+```
+python -m jupyter lab
+```
+Make sure that you are run these last commands with the virtual environment activated.
+
 ## Experiment Ideas:
 - [x] Get a simple neutal network-based regression to work.
 - [ ] Investigate eliminating magnitude of gradient. It would just tell you which direction to increment. To get convergence, may need to decrease step size over time. 

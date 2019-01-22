@@ -4,3 +4,7 @@ venv/
 # Jupyter Notebook Manual Saves
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
+
+# Datasets should be separated from Git and downloaded separately
+*.tfrecord
+data/*
