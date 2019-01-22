@@ -13,8 +13,11 @@
 ```
 
 # What's here?
-Various AI and Machine Learning experiments. The goal is to have a well-organized, central location for exploring ideas, original and otherwise, around these topics. 
+Various AI and Machine Learning demos. The goal is to have a well-organized, central location for exploring ideas in machine intelligence.
 
+## Table of Contents
+- [Universal Approximators](universal-approximators/universal-approximators.ipynb): Explores how neural networks can approximate arbitrary functions
+- [Dense MNIST](mnist-dense/mnist-dense.ipynb): A quick example of classifying handwritten digits from the MNIST dataset.
 ## Getting things running
 **To Eric**: To activate the python virtual environment on your good'ol trusty laptop, simply use the `mlenv` command, an alias declared in `~/.bash_profile`. 
 
