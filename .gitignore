@@ -9,3 +9,4 @@ mlenv/
 # Datasets should be separated from Git and downloaded separately
 *.tfrecord
 data/*
+!data/README.md
