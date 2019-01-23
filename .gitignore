@@ -1,5 +1,6 @@
-# Virtual Environment
+# Virtual Environments
 venv/
+mlenv/
 
 # Jupyter Notebook Manual Saves
 .ipynb_checkpoints
