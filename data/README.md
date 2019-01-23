@@ -1,4 +1,5 @@
 # Data Formatting Docs
+To keep this repo lightweight, datasets will be selectively downloaded by each notebook. All other files in this directory will be ignored by Git.
 
 ## mnist.pkl.gz
 This is the popular mnist dataset. This file contains 70000 tuples of the form `(image, label)`. The images are NumPy arrays of shape `(784,)`, which represent 28x28 images. The values are floats between 0 and 1. The labels are one-hot vectorized representations of the digits, with shape `(10,)`. In a tuple whose image depicts a 0, the label would look like `np.array([1, 0, 0 ...])`.
