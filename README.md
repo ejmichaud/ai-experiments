@@ -18,7 +18,7 @@ Various AI and Machine Learning demos. The goal is to have a well-organized, cen
 ## Table of Contents
 - [Universal Approximators](universal-approximators/universal-approximators.ipynb): Explores how neural networks can approximate arbitrary functions
 - [Dense MNIST](mnist-dense/mnist-dense.ipynb): A quick example of classifying handwritten digits from the MNIST dataset.
-- [Convolutional MNIST](mnist-dense/mnist-dense.ipynb): Using a CNN to classify MNIST digits.
+- [Convolutional MNIST](mnist-cnn/mnist-cnn.ipynb): Using a CNN to classify MNIST digits.
 ## Getting things running
 **To Eric**: To activate the python virtual environment on your good'ol trusty laptop, simply use the `mlenv` command, an alias declared in `~/.bash_profile`. 
 
