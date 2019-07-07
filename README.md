@@ -22,6 +22,34 @@ Various AI and Machine Learning demos. The goal is to have a well-organized, cen
 - [Dimensionality Reduction](dimensionality-reduction/dimensionality-reduction.ipynb): Testing PCA and UMAP on MNIST and using clustering on the embeddings for classification.
 
 ## Getting things running
+
+The most versatile way to start is by building a dedicated docker image. From the repository root directory, run:
+```
+docker build -t experiments .
+```
+And to run, use:
+```
+docker run --rm -it \
+	--volume ./:/root/ai-experiments  \
+	--publish 8888:8888 \
+	source lab.sh
+```
+If you want to use a tensorflow notebook, you'll have to run run the container and install from inside. That way, you can specify whether to install `tensorflow-gpu` or plain `tensorflow`:
+```
+docker run --rm -it \
+	--volume ./:/root/ai-experiments  \
+	--publish 8888:8888 \
+	/bin/bash
+
+$ conda install -y tensorflow-gpu
+$ source lab.sh
+```
+
+**`lab.sh`** executes:
+```
+jupyter lab --ip=0.0.0.0 --port=8888 --allow-root --no-browser
+```
+
 **To Eric**: To activate the python virtual environment on your good'ol trusty laptop, simply use the `mlenv` command, an alias declared in `~/.bash_profile`. 
 
 If you are reinstalling this repo on another machine, create the venv like so:
