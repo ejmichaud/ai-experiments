@@ -91,7 +91,7 @@ def linear_create_matrix(module, in_shape, out_shape):
 
     This matrix has shape: (input_activations, output_activations).
     Therefore each row contains the output weights of a neuron. To compute
-    the effective information, we normalize across rows.
+    the effective information, normalize across the rows of the returned matrix.
 
     Args:
         module (nn.Module): layer in feedforward network
@@ -113,7 +113,7 @@ def conv2d_create_matrix(module, in_shape, out_shape):
 
     This matrix has shape: (input_activations, output_activations).
     Therefore each row contains the output weights of a neuron. To compute
-    the effective information, we normalize across rows.
+    the effective information, normalize across the rows of the returned matrix.
 
     Args:
         module (nn.Module): layer in feedforward network
@@ -125,15 +125,16 @@ def conv2d_create_matrix(module, in_shape, out_shape):
     """
     with torch.no_grad():
         assert not any(module.padding)
-        assert all(s == 1 for s in module.stride)
         assert len(in_shape) == 4 and len(out_shape) == 4
         W = torch.zeros(*out_shape[1:], *in_shape[1:]) # [1:] to ignore batch size
         weight = module.weight
+        s_h, s_w = module.stride
         k_h, k_w = module.kernel_size
         for c_out in range(out_shape[1]):
-            for h in range(out_shape[2]):
-                for w in range(out_shape[3]):
-                    W[c_out][h][w][:, h:h+k_h, w:w+k_w] = weight[c_out]
+            for h in range(0, out_shape[2]):
+                for w in range(0, out_shape[3]):
+                    in_h, in_w = h*s_h, w*s_w
+                    W[c_out][h][w][:, in_h:in_h+k_h, in_w:in_w+k_w] = weight[c_out]
         ins = reduce(lambda x, y: x*y, in_shape[1:])
         outs = reduce(lambda x, y: x*y, out_shape[1:])
         return W.reshape((outs, ins)).t()
