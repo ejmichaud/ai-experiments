@@ -27,7 +27,7 @@ from foresight.ei import ei
 
 
 dir_path = Path().absolute()
-dataset_path = dir_path.parent / "data/mnist.pkl.gz"
+dataset_path = dir_path.parent.parent / "data/mnist.pkl.gz"
 if not dataset_path.exists():
     print('Downloading dataset with curl ...')
     if not dataset_path.parent.exists():
@@ -53,7 +53,7 @@ torch.set_default_dtype(dtype)
 # In[ ]:
 
 
-device
+print("Using device: {}".format(device))
 
 
 # In[ ]:
@@ -116,7 +116,7 @@ graph_data = []
 
 
 for realization in range(NUM_REALIZATIONS):
-    print("Starting realization {} of {}".format(realization, NUM_REALIZATIONS))
+    print("Starting realization {} of {}".format(realization+1, NUM_REALIZATIONS))
     
     model = SoftmaxRegression(28*28, 10).to(device)
     loss_fn = nn.NLLLoss()
@@ -183,7 +183,7 @@ for realization in range(NUM_REALIZATIONS):
             num_batches += 1
             if num_batches % 100 == 0:
                 update_metrics()
-    print("Appending data for realization {}".format(realization))
+    print("Appending data for realization {}".format(realization+1))
     graph_data.append((num_batches_data, eis_data, losses_data, accuracies_data))
     
 import pickle
