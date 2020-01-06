@@ -91,7 +91,7 @@ class FullyConnected(nn.Module):
             self.layers.append(nn.Linear(layers[i], layers[i+1], bias=use_bias))
 
     def forward(self, x):
-        if len(layers) == 1:
+        if len(self.layers) == 1:
             return F.log_softmax(self.layers[0](x), dim=1)
         for i in range(len(self.layers) - 1):
             x = self.activation(self.layers[i](x))
@@ -168,10 +168,10 @@ def generate_data(topology, use_bias, activation, initializer):
     runs = parent/"runs"
     if (runs/foldername).exists():
         print(f"""The folder for the following parameters ALREADY EXISTS:
-    topology: f{topology}
-    bias: f{use_bias}
-    activation: f{activation}
-    initializer: f{initializer}""")
+    topology: {topology}
+    bias: {use_bias}
+    activation: {activation}
+    initializer: {initializer}""")
         return
     (runs/foldername).mkdir()
     folder = runs/foldername
@@ -258,10 +258,10 @@ for topology in topologies:
                 print(f"""
 >>>>>>>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<<<<<<<<
 STARTING RUN {count}/{TOTAL_CONFIGS} WITH PARAMETERS:
-topology: f{topology}
-bias: f{bias}
-activation: f{activation}
-initializer: f{initializer}
+topology: {topology}
+bias: {bias}
+activation: {activation}
+initializer: {initializer}
 >>>>>>>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<<<<<<<<""")
                 generate_data(topology, bias, activation, initializer)
 
