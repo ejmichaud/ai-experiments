@@ -139,18 +139,15 @@ def EI_of_layer(layer, topology, samples=30000, batch_size=20, bins=32, device='
     in_shape, out_shape = topology[layer]
     in_shape, out_shape = in_shape[1:], out_shape[1:]
 
-    print("creating tensors...")
     inputs = torch.zeros((samples, *in_shape), device=device)
     outputs = torch.zeros((samples, *out_shape), device=device)
 
-    print("computing on noise...")
     for (i0, i1), size in indices_and_batch_sizes():
         sample = torch.rand((size, *in_shape), device=device)
         inputs[i0:i1] = sample
         result = activation(layer(sample))
         outputs[i0:i1] = result
 
-    print("summing MIs...")
     inputs = torch.flatten(inputs, start_dim=1)
     outputs = torch.flatten(outputs, start_dim=1)
     num_inputs, num_outputs = inputs.shape[1], outputs.shape[1]
