@@ -4,22 +4,12 @@ from math import log
 
 import numpy as np
 from sklearn.metrics import mutual_info_score
+from fast_histogram import histogram2d
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
-def nats_to_bits(nats):
-    r"""Convert information from nats to bits.
-
-    Args:
-        nats: float
-
-    Returns:
-        float: bits of information
-    """
-    return nats / log(2)
 
 
 def MI(x, y, bins=32, range=((0, 1), (0, 1))):
@@ -46,11 +36,42 @@ def MI(x, y, bins=32, range=((0, 1), (0, 1))):
 
     TODO: implement custom version in pure pytorch without relying on sklearn
     """
+
+    # def normalize(x):
+    #     x = x / np.sum(x)
+    #     x[x != x] = 0
+    #     return x
+
+    def H(x):
+        r = x / np.sum(x)
+        r[r != r] = 0
+        r = -r * np.log2(r)
+        r[r != r] = 0
+        return np.sum(r)
+    
+    def nats_to_bits(nats):
+        r"""Convert information from nats to bits.
+
+        Args:
+            nats: float
+
+        Returns:
+            float: bits of information
+        """
+        return nats / log(2)
+
+    def hack_range(range):
+        """This version of fast_histogram handles edge cases differently
+        than numpy, so we have to slightly adjust the bins."""
+        d = 1e-6
+        return ((range[0][0]-d, range[0][1]+d), (range[1][0]-d, range[1][1]+d))
+
     assert len(x) == len(y), "time series are of unequal length"
     x = x.detach().numpy()
     y = y.detach().numpy()
-    contingency_matrix, _, _ = np.histogram2d(x, y, bins=bins, range=range)
-    return nats_to_bits(mutual_info_score(None, None, contingency=contingency_matrix))
+    cm = histogram2d(x, y, bins=bins, range=hack_range(range))
+    # return H(np.sum(cm, axis=1)) + H(np.sum(cm, axis=0)) - H(cm)
+    return nats_to_bits(mutual_info_score(None, None, contingency=cm))
 
 
 r"""
@@ -117,15 +138,19 @@ def EI_of_layer(layer, topology, samples=30000, batch_size=20, bins=32, device='
     
     in_shape, out_shape = topology[layer]
     in_shape, out_shape = in_shape[1:], out_shape[1:]
+
+    print("creating tensors...")
     inputs = torch.zeros((samples, *in_shape), device=device)
     outputs = torch.zeros((samples, *out_shape), device=device)
 
+    print("computing on noise...")
     for (i0, i1), size in indices_and_batch_sizes():
         sample = torch.rand((size, *in_shape), device=device)
         inputs[i0:i1] = sample
         result = activation(layer(sample))
         outputs[i0:i1] = result
 
+    print("summing MIs...")
     inputs = torch.flatten(inputs, start_dim=1)
     outputs = torch.flatten(outputs, start_dim=1)
     num_inputs, num_outputs = inputs.shape[1], outputs.shape[1]
