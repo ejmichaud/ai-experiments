@@ -377,7 +377,7 @@ def CalculateLayerEI(injection, output, bins):
     totalEI = 0.0
     for i in range(injSize):
         for o in range(outSize):
-           pmi = MI(injection[:,i].detach().numpy(), output[:,o].detach().numpy(), bins)
+           pmi = MI(injection[:,i].to('cpu').detach().numpy(), output[:,o].to('cpu').detach().numpy(), bins)
            totalEI += pmi
 
     return totalEI
