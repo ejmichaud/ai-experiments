@@ -8,8 +8,6 @@ from fast_histogram import histogram2d
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
 
 
 def MI(x, y, bins=32, range=((0, 1), (0, 1))):
@@ -85,9 +83,27 @@ VALID_MODULES = {
     # nn.AvgPool2d: avgpool2d_create_matrix
 }
 
+r"""
+    The activations which are currently supported and their output ranges.
+"""
+VALID_ACTIVATIONS = {
+    nn.Sigmoid: (0, 1),
+    nn.Tanh: (-1, 1),
+    type(None): (-10, 10)
+}
+
 
 def topology_of(model, input):
-    r"""Get a dictionary {module: (in_shape, out_shape), ...} for modules in `model`.
+    r"""Get a dictionary:
+
+    {
+        `nn.Module`: {
+            "input": {"activation": activation module, "shape": tuple},
+            "output": {"activation": activation module, "shape": tuple}
+        },
+        ...
+    } 
+    for modules in `model` provided they are in VALID_MODULES
 
     Because PyTorch uses a dynamic computation graph, the number of activations
     that a given module will return is not intrinsic to the definition of the module,
@@ -96,35 +112,67 @@ def topology_of(model, input):
 
     This function passes `input` into `model` and gets the shapes of the tensor 
     inputs and outputs of each child module in model, provided that they are
-    instances of VALID_MODULES.
+    instances of VALID_MODULES. It also finds the modules run before and after
+    each child module, provided they are in VALID_ACTIVATIONS. 
 
     Args:
         model (nn.Module): feedforward neural network
         input (torch.tensor): a valid input to the network
 
     Returns:
-        Dictionary {`nn.Module`: tuple(in_shape, out_shape)}
+        Dictionary of dictionaries of dictionaries (see above)
     """
 
-    shapes = {}
+    topology = {}
     hooks = []
     
+    prv = None
     def register_hook(module):
         def hook(module, input, output):
-            shapes[module] = (tuple(input[0].shape), tuple(output.shape))
-        if type(module) in VALID_MODULES:
+            nonlocal prv
+            if type(module) in VALID_MODULES:
+                structure = {
+                    "input": dict(),
+                    "output": dict()
+                }
+                structure["input"]["activation"] = prv if type(prv) in VALID_ACTIVATIONS else None
+                structure["input"]["shape"] = tuple(input[0].shape)
+                structure["output"]["activation"] = None
+                structure["output"]["shape"] = tuple(output.shape)
+                topology[module] = structure
+                prv = module
+            if type(module) in VALID_ACTIVATIONS:
+                if prv in topology:
+                    topology[prv]["output"]["activation"] = module
+                prv = module
+        if type(module) in VALID_MODULES or type(module) in VALID_ACTIVATIONS:
             hooks.append(module.register_forward_hook(hook))
 
     model.apply(register_hook)
     model(input)
     for hook in hooks:
         hook.remove()
-    return shapes
+    return topology
 
 
-def EI_of_layer(layer, topology, samples=30000, batch_size=20, bins=32, device='cpu', activation=torch.sigmoid):
-    """This should allow for the easy calculation of each layer's EI."""
-    
+def EI_of_layer(layer, topology, samples=30000, batch_size=20, bins=32, \
+        in_range=None, out_range=None, activation=None, device='cpu'):
+    """Computes the effective information of neural network layer `layer`.
+
+    Args:
+        layer (nn.Module): a module in `topology`
+        topology (dict): topology object (nested dictionary) returned from topology_of function
+        samples (int): the number of noise samples run through `layer`
+        batch_size (int): the number of samples to run `layer` on simultaneously
+        bins (int): the number of bins to discretize in_range and out_range into for MI calculation
+        in_range (tuple): (lower_bound, upper_bound) by default determined from `topology`
+        out_range (tuple): (lower_bound, upper_bound) by default determined from `topology`
+        activation (function): the output activation of `layer`, by defualt determined from `topology`
+        device: 'cpu' or 'cuda' or `torch.device` instance
+
+    Returns:
+        float: an estimate of the EI of layer `layer`
+    """
     def indices_and_batch_sizes():
         if batch_size > samples:
             yield (0, samples), samples
@@ -136,14 +184,26 @@ def EI_of_layer(layer, topology, samples=30000, batch_size=20, bins=32, device='
         if last_batch and batch_size <= samples:
             yield (samples-last_batch, samples), last_batch
     
-    in_shape, out_shape = topology[layer]
+    in_shape = topology[layer]["input"]["shape"]
+    if in_range is None:
+        activation_type = type(topology[layer]["input"]["activation"])
+        in_range = VALID_ACTIVATIONS[activation_type]
+    out_shape = topology[layer]["output"]["shape"]
+    if out_range is None:
+        activation_type = type(topology[layer]["output"]["activation"])
+        out_range = VALID_ACTIVATIONS[activation_type]
     in_shape, out_shape = in_shape[1:], out_shape[1:]
+    in_u, in_l = in_range
 
     inputs = torch.zeros((samples, *in_shape), device=device)
     outputs = torch.zeros((samples, *out_shape), device=device)
+    if activation is None:
+        activation = topology[layer]["output"]["activation"]
+        if activation is None:
+            activation = lambda x: x
 
     for (i0, i1), size in indices_and_batch_sizes():
-        sample = torch.rand((size, *in_shape), device=device)
+        sample = (in_u - in_l) * torch.rand((size, *in_shape), device=device) + in_l
         inputs[i0:i1] = sample
         result = activation(layer(sample))
         outputs[i0:i1] = result
@@ -154,7 +214,7 @@ def EI_of_layer(layer, topology, samples=30000, batch_size=20, bins=32, device='
     EI = 0.0
     for A in range(num_inputs):
         for B in range(num_outputs):
-            EI += MI(inputs[:, A].to('cpu'), outputs[:, B].to('cpu'), bins=bins)
+            EI += MI(inputs[:, A].to('cpu'), outputs[:, B].to('cpu'), bins=bins, range=(in_range, out_range))
     return EI
 
 
