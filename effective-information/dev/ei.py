@@ -155,7 +155,7 @@ def topology_of(model, input):
     return topology
 
 
-def EI_of_layer(layer, topology, samples=30000, batch_size=20, bins=32, \
+def EI_of_layer(layer, topology, samples=30000, batch_size=20, bins=64, \
         in_range=None, out_range=None, activation=None, device='cpu'):
     """Computes the effective information of neural network layer `layer`.
 
@@ -218,5 +218,73 @@ def EI_of_layer(layer, topology, samples=30000, batch_size=20, bins=32, \
     return EI
 
 
+def sensitivity_of_layer(layer, topology, samples=500, batch_size=20, bins=64, \
+        in_range=None, out_range=None, activation=None, device='cpu'):
+    """Computes the sensitivity of neural network layer `layer`.
+
+    Args:
+        layer (nn.Module): a module in `topology`
+        topology (dict): topology object (nested dictionary) returned from topology_of function
+        samples (int): the number of noise samples run through `layer`
+        batch_size (int): the number of samples to run `layer` on simultaneously
+        bins (int): the number of bins to discretize in_range and out_range into for MI calculation
+        in_range (tuple): (lower_bound, upper_bound) by default determined from `topology`
+        out_range (tuple): (lower_bound, upper_bound) by default determined from `topology`
+        activation (function): the output activation of `layer`, by defualt determined from `topology`
+        device: 'cpu' or 'cuda' or `torch.device` instance
+
+    Returns:
+        float: an estimate of the EI of layer `layer`
+    """
+    def indices_and_batch_sizes():
+        if batch_size > samples:
+            yield (0, samples), samples
+        start, end = 0, batch_size
+        for _ in range(batch_size, samples+1, batch_size):
+            yield (start, end), batch_size
+            start, end = end, end + batch_size
+        last_batch = samples % batch_size
+        if last_batch and batch_size <= samples:
+            yield (samples-last_batch, samples), last_batch
+    
+    #################################################
+    #   Determine shapes, ranges, and activations   #
+    #################################################
+    in_shape = topology[layer]["input"]["shape"]
+    if in_range is None:
+        activation_type = type(topology[layer]["input"]["activation"])
+        in_range = VALID_ACTIVATIONS[activation_type]
+    out_shape = topology[layer]["output"]["shape"]
+    if out_range is None:
+        activation_type = type(topology[layer]["output"]["activation"])
+        out_range = VALID_ACTIVATIONS[activation_type]
+    in_shape, out_shape = in_shape[1:], out_shape[1:]
+    in_u, in_l = in_range
+    if activation is None:
+        activation = topology[layer]["output"]["activation"]
+        if activation is None:
+            activation = lambda x: x
+
+    #################################################
+    #   Create buffers for layer input and output   #
+    #################################################
+    num_inputs = reduce(lambda x, y: x * y, in_shape)
+    num_outputs = reduce(lambda x, y: x * y, out_shape)
+    inputs = torch.zeros((samples, num_inputs), device=device)
+    outputs = torch.zeros((samples, num_outputs), device=device)
+
+    sensitivity = 0.0
+    for A in range(num_inputs):
+        for (i0, i1), size in indices_and_batch_sizes():
+            sample = torch.zeros((size, num_inputs))
+            sample[:, A] = (in_u - in_l) * torch.rand((size, num_inputs), device=device) + in_l
+            inputs[i0:i1] = sample
+            result = activation(layer(sample.reshape((size, *in_shape))))
+            outputs[i0:i1] = result.flatten(start_dim=1)
+        for B in range(num_outputs):
+            sensitivity += MI(inputs[:, A].to('cpu'), outputs[:, B].to('cpu'), bins=bins, range=(in_range, out_range))
+        inputs.fill_(0)
+        outputs.fill_(0)
+    return sensitivity
 
 
