@@ -1,6 +1,7 @@
 # -*- coding: UTF-8 -*-
 
 from math import log
+from functools import reduce
 
 import numpy as np
 from sklearn.metrics import mutual_info_score
@@ -205,7 +206,8 @@ def EI_of_layer(layer, topology, samples=30000, batch_size=20, bins=64, \
     for (i0, i1), size in indices_and_batch_sizes():
         sample = (in_u - in_l) * torch.rand((size, *in_shape), device=device) + in_l
         inputs[i0:i1] = sample
-        result = activation(layer(sample))
+        with torch.no_grad():
+            result = activation(layer(sample))
         outputs[i0:i1] = result
 
     inputs = torch.flatten(inputs, start_dim=1)
@@ -234,7 +236,7 @@ def sensitivity_of_layer(layer, topology, samples=500, batch_size=20, bins=64, \
         device: 'cpu' or 'cuda' or `torch.device` instance
 
     Returns:
-        float: an estimate of the EI of layer `layer`
+        float: an estimate of the sensitivity of layer `layer`
     """
     def indices_and_batch_sizes():
         if batch_size > samples:
@@ -276,10 +278,11 @@ def sensitivity_of_layer(layer, topology, samples=500, batch_size=20, bins=64, \
     sensitivity = 0.0
     for A in range(num_inputs):
         for (i0, i1), size in indices_and_batch_sizes():
-            sample = torch.zeros((size, num_inputs))
-            sample[:, A] = (in_u - in_l) * torch.rand((size, num_inputs), device=device) + in_l
+            sample = torch.zeros((size, num_inputs)).to(device)
+            sample[:, A] = (in_u - in_l) * torch.rand((size,), device=device) + in_l
             inputs[i0:i1] = sample
-            result = activation(layer(sample.reshape((size, *in_shape))))
+            with torch.no_grad():
+                result = activation(layer(sample.reshape((size, *in_shape))))
             outputs[i0:i1] = result.flatten(start_dim=1)
         for B in range(num_outputs):
             sensitivity += MI(inputs[:, A].to('cpu'), outputs[:, B].to('cpu'), bins=bins, range=(in_range, out_range))
