@@ -11,6 +11,29 @@ import torch
 import torch.nn as nn
 
 
+class IncompatibleArgumentError(ValueError):
+    pass
+
+
+def hack_range(range):
+        """This version of fast_histogram handles edge cases differently
+        than numpy, so we have to slightly adjust the bins."""
+        d = 1e-6
+        return ((range[0][0]-d, range[0][1]+d), (range[1][0]-d, range[1][1]+d))
+
+
+def nats_to_bits(nats):
+        r"""Convert information from nats to bits.
+
+        Args:
+            nats: float
+
+        Returns:
+            float: bits of information
+        """
+        return nats / log(2)
+
+
 def MI(x, y, bins=32, range=((0, 1), (0, 1))):
     r"""Computes mutual information between time-series x and y.
 
@@ -41,29 +64,13 @@ def MI(x, y, bins=32, range=((0, 1), (0, 1))):
     #     x[x != x] = 0
     #     return x
 
-    def H(x):
-        r = x / np.sum(x)
-        r[r != r] = 0
-        r = -r * np.log2(r)
-        r[r != r] = 0
-        return np.sum(r)
+    # def H(x):
+    #     r = x / np.sum(x)
+    #     r[r != r] = 0
+    #     r = -r * np.log2(r)
+    #     r[r != r] = 0
+    #     return np.sum(r)
     
-    def nats_to_bits(nats):
-        r"""Convert information from nats to bits.
-
-        Args:
-            nats: float
-
-        Returns:
-            float: bits of information
-        """
-        return nats / log(2)
-
-    def hack_range(range):
-        """This version of fast_histogram handles edge cases differently
-        than numpy, so we have to slightly adjust the bins."""
-        d = 1e-6
-        return ((range[0][0]-d, range[0][1]+d), (range[1][0]-d, range[1][1]+d))
 
     assert len(x) == len(y), "time series are of unequal length"
     x = x.detach().numpy()
@@ -156,24 +163,10 @@ def topology_of(model, input):
     return topology
 
 
-def EI_of_layer(layer, topology, samples=30000, batch_size=20, bins=64, \
-        in_range=None, out_range=None, activation=None, device='cpu'):
-    """Computes the effective information of neural network layer `layer`.
-
-    Args:
-        layer (nn.Module): a module in `topology`
-        topology (dict): topology object (nested dictionary) returned from topology_of function
-        samples (int): the number of noise samples run through `layer`
-        batch_size (int): the number of samples to run `layer` on simultaneously
-        bins (int): the number of bins to discretize in_range and out_range into for MI calculation
-        in_range (tuple): (lower_bound, upper_bound) by default determined from `topology`
-        out_range (tuple): (lower_bound, upper_bound) by default determined from `topology`
-        activation (function): the output activation of `layer`, by defualt determined from `topology`
-        device: 'cpu' or 'cuda' or `torch.device` instance
-
-    Returns:
-        float: an estimate of the EI of layer `layer`
-    """
+def _EI_of_layer_manual_samples(layer, samples, batch_size, bins, in_shape, in_range, \
+    out_shape, out_range, activation, device):
+    """Helper function for EI_of_layer that computes the EI of layer `layer`
+    with a set number of samples."""
     def indices_and_batch_sizes():
         if batch_size > samples:
             yield (0, samples), samples
@@ -184,24 +177,9 @@ def EI_of_layer(layer, topology, samples=30000, batch_size=20, bins=64, \
         last_batch = samples % batch_size
         if last_batch and batch_size <= samples:
             yield (samples-last_batch, samples), last_batch
-    
-    in_shape = topology[layer]["input"]["shape"]
-    if in_range is None:
-        activation_type = type(topology[layer]["input"]["activation"])
-        in_range = VALID_ACTIVATIONS[activation_type]
-    out_shape = topology[layer]["output"]["shape"]
-    if out_range is None:
-        activation_type = type(topology[layer]["output"]["activation"])
-        out_range = VALID_ACTIVATIONS[activation_type]
-    in_shape, out_shape = in_shape[1:], out_shape[1:]
-    in_u, in_l = in_range
 
     inputs = torch.zeros((samples, *in_shape), device=device)
     outputs = torch.zeros((samples, *out_shape), device=device)
-    if activation is None:
-        activation = topology[layer]["output"]["activation"]
-        if activation is None:
-            activation = lambda x: x
 
     for (i0, i1), size in indices_and_batch_sizes():
         sample = (in_u - in_l) * torch.rand((size, *in_shape), device=device) + in_l
@@ -218,6 +196,125 @@ def EI_of_layer(layer, topology, samples=30000, batch_size=20, bins=64, \
         for B in range(num_outputs):
             EI += MI(inputs[:, A].to('cpu'), outputs[:, B].to('cpu'), bins=bins, range=(in_range, out_range))
     return EI
+
+
+def _EI_of_layer_auto_samples(layer, batch_size, bins, in_shape, in_range, \
+    out_shape, out_range, activation, device, threshold):
+    """Helper function of EI_of_layer that computes the EI of layer `layer`
+    using enough samples to be within `threshold`% of the true value. 
+    """
+    def has_converged(EIs):
+        if len(EIs) < 2:
+            return False
+        error = (EIs[-2] - EIs[-1]) / EIs[-1]
+        if error < threshold:
+            return True
+        else:
+            return False
+
+    INTERVAL = 10000
+    def indices_and_batch_sizes():
+        if batch_size > INTERVAL:
+            yield (0, INTERVAL), INTERVAL
+        start, end = 0, batch_size
+        for _ in range(batch_size, INTERVAL+1, batch_size):
+            yield (start, end), batch_size
+            start, end = end, end + batch_size
+        last_batch = INTERVAL % batch_size
+        if last_batch and batch_size <= samples:
+            yield (INTERVAL-last_batch, INTERVAL), last_batch
+
+    num_inputs = reduce(lambda x, y: x * y, in_shape)
+    num_outputs = reduce(lambda x, y: x * y, out_shape)
+
+    EIs = []
+    CMS = np.zeros((num_inputs, num_outputs, bins, bins)) # histograms for each input/output pair
+
+    inputs = torch.zeros((INTERVAL, *in_shape), device=device)
+    outputs = torch.zeros((INTERVAL, *out_shape), device=device)
+
+    while True:
+        for (i0, i1), size in indices_and_batch_sizes():
+            sample = (in_u - in_l) * torch.rand((size, *in_shape), device=device) + in_l
+            inputs[i0:i1] = sample
+            with torch.no_grad():
+                result = activation(layer(sample))
+            outputs[i0:i1] = result
+        inputs_np = torch.flatten(inputs, start_dim=1).to('cpu').detach().numpy()
+        outputs_np = torch.flatten(outputs, start_dim=1).to('cpu').detach().numpy()
+        EI = 0.0
+        for A in range(num_inputs):
+            for B in range(num_outputs):
+                CMS[A, B, :, :] += histogram2d(inputs_np, outputs_np, bins=bins,
+                    range=hack_range((in_range, out_range)))
+                EI += nats_to_bits(mutual_info_score(None, None, contingency=CMS[A, B, :, :]))
+        EIs.append(EI)
+        if has_converged(EIs):
+            return EI[-1]
+        
+
+def EI_of_layer(layer, topology, threshold=0.05, batch_size=20, bins=64, \
+        samples=None, in_range=None, out_range=None, activation=None, device='cpu'):
+    """Computes the effective information of neural network layer `layer`.
+
+    Args:
+        layer (nn.Module): a module in `topology`
+        topology (dict): topology object (nested dictionary) returned from topology_of function
+        samples (int): the number of noise samples run through `layer`
+        batch_size (int): the number of samples to run `layer` on simultaneously
+        bins (int): the number of bins to discretize in_range and out_range into for MI calculation
+        in_range (tuple): (lower_bound, upper_bound) by default determined from `topology`
+        out_range (tuple): (lower_bound, upper_bound) by default determined from `topology`
+        activation (function): the output activation of `layer`, by defualt determined from `topology`
+        device: 'cpu' or 'cuda' or `torch.device` instance
+
+    Returns:
+        float: an estimate of the EI of layer `layer`
+    """
+    
+    #################################################
+    #   Determine shapes, ranges, and activations   #
+    #################################################
+    in_shape = topology[layer]["input"]["shape"]
+    if in_range is None:
+        activation_type = type(topology[layer]["input"]["activation"])
+        in_range = VALID_ACTIVATIONS[activation_type]
+    out_shape = topology[layer]["output"]["shape"]
+    if out_range is None:
+        activation_type = type(topology[layer]["output"]["activation"])
+        out_range = VALID_ACTIVATIONS[activation_type]
+    in_shape, out_shape = in_shape[1:], out_shape[1:]
+    in_u, in_l = in_range
+
+    if activation is None:
+        activation = topology[layer]["output"]["activation"]
+        if activation is None:
+            activation = lambda x: x
+
+    #################################################
+    #             Call helper functions             #
+    #################################################
+    if samples is not None:
+        return _EI_of_layer_manual_samples(layer=layer, 
+            samples=samples, 
+            batch_size=batch_size,
+            bins=bins,
+            in_shape=in_shape,
+            in_range=in_range,
+            out_shape=out_shape,
+            out_range=out_range,
+            activation=activation,
+            device=device)
+    return _EI_of_layer_auto_samples(layer=layer,
+                batch_size=batch_size,
+                bins=bins,
+                in_shape=in_shape,
+                in_range=in_range,
+                out_shape=out_shape,
+                out_range=out_range,
+                activation=activation,
+                device=device,
+                threshold=threshold)
 
 
 def sensitivity_of_layer(layer, topology, samples=500, batch_size=20, bins=64, \
