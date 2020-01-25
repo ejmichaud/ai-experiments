@@ -97,6 +97,7 @@ r"""
 VALID_ACTIVATIONS = {
     nn.Sigmoid: (0, 1),
     nn.Tanh: (-1, 1),
+    nn.ReLU: 'dynamic'
     type(None): (-10, 10)
 }
 
@@ -195,25 +196,36 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, bins, in_shape, in_r
     EI = 0.0
     for A in range(num_inputs):
         for B in range(num_outputs):
+            if out_range == 'dynamic':
+                out_range = (torch.min(outputs[:, B]).item(), torch.max(outputs[:, B]).item())
             EI += MI(inputs[:, A].to('cpu'), outputs[:, B].to('cpu'), bins=bins, range=(in_range, out_range))
     return EI
+
+
+"""Note: I currently don't handle relu inputs dynamically. So if the preceeding layer is
+a relu, I have no idea what range to use."""
 
 
 def _EI_of_layer_auto_samples(layer, batch_size, bins, in_shape, in_range, \
     out_shape, out_range, activation, device, threshold):
     """Helper function of EI_of_layer that computes the EI of layer `layer`
     using enough samples to be within `threshold`% of the true value. 
+
+
     """
+    MULTIPLIER = 2
+    SAMPLES_SO_FAR = 10000
+    INTERVAL = 10000
+
     def has_converged(EIs):
         if len(EIs) < 2:
             return False
-        error = (EIs[-2] - EIs[-1]) / EIs[-1]
-        if error < threshold:
-            return True
-        else:
+        slope = (EIs[-2] - EIs[-1]) / INTERVAL
+        error = slope * SAMPLES_SO_FAR * (MULTIPLIER - 1)
+        if error / EIs[-1] > threshold:
             return False
+        return True
 
-    INTERVAL = 10000
     def indices_and_batch_sizes():
         if batch_size > INTERVAL:
             yield (0, INTERVAL), INTERVAL
@@ -247,15 +259,19 @@ def _EI_of_layer_auto_samples(layer, batch_size, bins, in_shape, in_range, \
         EI = 0.0
         for A in range(num_inputs):
             for B in range(num_outputs):
+                if out_range == 'dynamic':
+                    out_range = (torch.min(outputs[:, B]).item(), torch.max(outputs[:, B]).item())
                 CMS[A, B, :, :] += histogram2d(inputs_flat[:, A].to('cpu').detach().numpy(),
                                             outputs_flat[:, B].to('cpu').detach().numpy(),
                                             bins=bins,
                                             range=hack_range((in_range, out_range)))
                 EI += nats_to_bits(mutual_info_score(None, None, contingency=CMS[A, B, :, :]))
         EIs.append(EI)
-        print(EI)
+        print("{}: {}".format(SAMPLES_SO_FAR, EI))
         if has_converged(EIs):
             return EIs[-1]
+        INTERVAL = int(SAMPLES_SO_FAR * (MULTIPLIER - 1))
+        SAMPLES_SO_FAR += INTERVAL
         
 
 def EI_of_layer(layer, topology, threshold=0.05, batch_size=20, bins=64, \
