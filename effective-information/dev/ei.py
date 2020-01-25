@@ -177,7 +177,8 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, bins, in_shape, in_r
         last_batch = samples % batch_size
         if last_batch and batch_size <= samples:
             yield (samples-last_batch, samples), last_batch
-
+    
+    in_u, in_l = in_range
     inputs = torch.zeros((samples, *in_shape), device=device)
     outputs = torch.zeros((samples, *out_shape), device=device)
 
@@ -223,7 +224,8 @@ def _EI_of_layer_auto_samples(layer, batch_size, bins, in_shape, in_range, \
         last_batch = INTERVAL % batch_size
         if last_batch and batch_size <= samples:
             yield (INTERVAL-last_batch, INTERVAL), last_batch
-
+    
+    in_u, in_l = in_range
     num_inputs = reduce(lambda x, y: x * y, in_shape)
     num_outputs = reduce(lambda x, y: x * y, out_shape)
 
@@ -240,17 +242,20 @@ def _EI_of_layer_auto_samples(layer, batch_size, bins, in_shape, in_range, \
             with torch.no_grad():
                 result = activation(layer(sample))
             outputs[i0:i1] = result
-        inputs_np = torch.flatten(inputs, start_dim=1).to('cpu').detach().numpy()
-        outputs_np = torch.flatten(outputs, start_dim=1).to('cpu').detach().numpy()
+        inputs_flat = torch.flatten(inputs, start_dim=1)
+        outputs_flat = torch.flatten(outputs, start_dim=1)
         EI = 0.0
         for A in range(num_inputs):
             for B in range(num_outputs):
-                CMS[A, B, :, :] += histogram2d(inputs_np, outputs_np, bins=bins,
-                    range=hack_range((in_range, out_range)))
+                CMS[A, B, :, :] += histogram2d(inputs_flat[:, A].to('cpu').detach().numpy(),
+                                            outputs_flat[:, B].to('cpu').detach().numpy(),
+                                            bins=bins,
+                                            range=hack_range((in_range, out_range)))
                 EI += nats_to_bits(mutual_info_score(None, None, contingency=CMS[A, B, :, :]))
         EIs.append(EI)
+        print(EI)
         if has_converged(EIs):
-            return EI[-1]
+            return EIs[-1]
         
 
 def EI_of_layer(layer, topology, threshold=0.05, batch_size=20, bins=64, \
@@ -275,16 +280,14 @@ def EI_of_layer(layer, topology, threshold=0.05, batch_size=20, bins=64, \
     #################################################
     #   Determine shapes, ranges, and activations   #
     #################################################
-    in_shape = topology[layer]["input"]["shape"]
+    in_shape = topology[layer]["input"]["shape"][1:]
     if in_range is None:
         activation_type = type(topology[layer]["input"]["activation"])
         in_range = VALID_ACTIVATIONS[activation_type]
-    out_shape = topology[layer]["output"]["shape"]
+    out_shape = topology[layer]["output"]["shape"][1:]
     if out_range is None:
         activation_type = type(topology[layer]["output"]["activation"])
         out_range = VALID_ACTIVATIONS[activation_type]
-    in_shape, out_shape = in_shape[1:], out_shape[1:]
-    in_u, in_l = in_range
 
     if activation is None:
         activation = topology[layer]["output"]["activation"]
@@ -358,12 +361,12 @@ def sensitivity_of_layer(layer, topology, samples=500, batch_size=20, bins=64, \
         activation_type = type(topology[layer]["output"]["activation"])
         out_range = VALID_ACTIVATIONS[activation_type]
     in_shape, out_shape = in_shape[1:], out_shape[1:]
-    in_u, in_l = in_range
+    in_l, in_u = in_range
     if activation is None:
         activation = topology[layer]["output"]["activation"]
         if activation is None:
             activation = lambda x: x
-
+    
     #################################################
     #   Create buffers for layer input and output   #
     #################################################
