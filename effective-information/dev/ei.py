@@ -164,7 +164,7 @@ def topology_of(model, input):
     return topology
 
 
-MEMORY_LIMIT = 250000000 # 250 million floats
+MEMORY_LIMIT = 100000000 # 100 million floats ~ 0.4 GiB
 
 def _chunk_sizes(samples, num_inputs, num_outputs, limit):
     """Generator for noise tensor sizes. 
