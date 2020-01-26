@@ -166,22 +166,25 @@ def topology_of(model, input):
 
 MEMORY_LIMIT = 250000000 # 250 million floats
 
-def _sample_sizes(samples, num_inputs, limit):
+def _sample_sizes(samples, num_inputs, num_outputs, limit):
     """Generator for noise tensor sizes. 
 
     Sometimes, the input and output matrices are too big to store
     on the GPU, so we have to divide up samples into smaller
-    chunks and evaluate on them. If samples * num_inputs <= limit,
+    chunks and evaluate on them. If :
+            samples * max(num_inputs, num_outputs) <= limit,
     then just yields samples. Otherwise breaks samples into
-    chunks of size limit // num_inputs, and also yields the remainder.
+    chunks of size limit // max(num_inputs, num_outputs),
+    and also yields the remainder.
     """
-    size = limit // num_inputs
+    width = max(num_inputs, num_outputs)
+    size = limit // width
     for _ in range(size, samples+1, size):
         yield size
     if size > samples:
         yield samples
     remainder = samples % size
-    if remainder and num_inputs * samples >= limit:
+    if remainder and width * samples >= limit:
         yield remainder
 
 
@@ -216,7 +219,7 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, bins, in_shape, in_r
         dyn_out_ranges = np.zeros((num_outputs, 2))
         dyn_ranges_set = False
 
-    for section_size in _sample_sizes(samples, num_inputs, MEMORY_LIMIT):
+    for section_size in _sample_sizes(samples, num_inputs, num_outputs, MEMORY_LIMIT):
         print(section_size)
         inputs = torch.zeros((section_size, *in_shape), device=device)
         outputs = torch.zeros((section_size, *out_shape), device=device)
