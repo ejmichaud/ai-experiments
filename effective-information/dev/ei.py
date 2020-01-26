@@ -166,7 +166,7 @@ def topology_of(model, input):
 
 MEMORY_LIMIT = 250000000 # 250 million floats
 
-def _sample_sizes(samples, num_inputs, num_outputs, limit):
+def _chunk_sizes(samples, num_inputs, num_outputs, limit):
     """Generator for noise tensor sizes. 
 
     Sometimes, the input and output matrices are too big to store
@@ -214,16 +214,16 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, bins, in_shape, in_r
     num_inputs = reduce(lambda x, y: x * y, in_shape)
     num_outputs = reduce(lambda x, y: x * y, out_shape)
 
-    CMS = np.zeros((num_inputs, num_outputs, bins, bins)) # histograms for each input/output pair
+    CMs = np.zeros((num_inputs, num_outputs, bins, bins)) # histograms for each input/output pair
     if out_range == 'dynamic':
         dyn_out_ranges = np.zeros((num_outputs, 2))
         dyn_ranges_set = False
 
-    for section_size in _sample_sizes(samples, num_inputs, num_outputs, MEMORY_LIMIT):
-        print(section_size)
-        inputs = torch.zeros((section_size, *in_shape), device=device)
-        outputs = torch.zeros((section_size, *out_shape), device=device)
-        for (i0, i1), bsize in _indices_and_batch_sizes(section_size, batch_size):
+    for chunk_size in _chunk_sizes(samples, num_inputs, num_outputs, MEMORY_LIMIT):
+        print(chunk_size)
+        inputs = torch.zeros((chunk_size, *in_shape), device=device)
+        outputs = torch.zeros((chunk_size, *out_shape), device=device)
+        for (i0, i1), bsize in _indices_and_batch_sizes(chunk_size, batch_size):
             sample = (in_u - in_l) * torch.rand((bsize, *in_shape), device=device) + in_l
             inputs[i0:i1] = sample
             with torch.no_grad():
@@ -245,14 +245,14 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, bins, in_shape, in_r
                     out_r = tuple(dyn_out_ranges[B])
                 else:
                     out_r = out_range
-                CMS[A, B, :, :] += histogram2d(inputs[:, A].to('cpu').detach().numpy(),
+                CMs[A, B, :, :] += histogram2d(inputs[:, A].to('cpu').detach().numpy(),
                                             outputs[:, B].to('cpu').detach().numpy(),
                                             bins=bins,
                                             range=hack_range((in_range, out_r)))
     EI = 0.0
     for A in range(num_inputs):
         for B in range(num_outputs):
-            EI += nats_to_bits(mutual_info_score(None, None, contingency=CMS[A, B, :, :]))
+            EI += nats_to_bits(mutual_info_score(None, None, contingency=CMs[A, B, :, :]))
     return EI
 
 
@@ -281,29 +281,46 @@ def _EI_of_layer_auto_samples(layer, batch_size, bins, in_shape, in_range, \
     num_outputs = reduce(lambda x, y: x * y, out_shape)
 
     EIs = []
-    CMS = np.zeros((num_inputs, num_outputs, bins, bins)) # histograms for each input/output pair
+    CMs = np.zeros((num_inputs, num_outputs, bins, bins)) # histograms for each input/output pair
+    if out_range == 'dynamic':
+        dyn_out_ranges = np.zeros((num_outputs, 2))
+        dyn_ranges_set = False
 
     while True:
-        inputs = torch.zeros((INTERVAL, *in_shape), device=device)
-        outputs = torch.zeros((INTERVAL, *out_shape), device=device)
-        for (i0, i1), size in indices_and_batch_sizes():
-            sample = (in_u - in_l) * torch.rand((size, *in_shape), device=device) + in_l
-            inputs[i0:i1] = sample
-            with torch.no_grad():
-                result = activation(layer(sample))
-            outputs[i0:i1] = result
-        inputs= torch.flatten(inputs, start_dim=1)
-        outputs = torch.flatten(outputs, start_dim=1)
+        for chunk_size in _chunk_sizes(INTERVAL, num_inputs, num_outputs, MEMORY_LIMIT):
+            print(chunk_size)
+            inputs = torch.zeros((chunk_size, *in_shape), device=device)
+            outputs = torch.zeros((chunk_size, *out_shape), device=device)
+            for (i0, i1), bsize in _indices_and_batch_sizes(chunk_size, batch_size):
+                sample = (in_u - in_l) * torch.rand((bsize, *in_shape), device=device) + in_l
+                inputs[i0:i1] = sample
+                with torch.no_grad():
+                    result = activation(layer(sample))
+                outputs[i0:i1] = result
+            inputs = torch.flatten(inputs, start_dim=1)
+            outputs = torch.flatten(outputs, start_dim=1)
+            if out_range == 'dynamic' and not dyn_ranges_set:
+                for B in range(num_outputs):
+                    out_l = torch.min(outputs[:, B]).item()
+                    out_u = torch.max(outputs[:, B]).item()
+                    dyn_out_ranges[B][0] = out_l
+                    dyn_out_ranges[B][1] = out_u
+                dyn_ranges_set = True
+
+            for A in range(num_inputs):
+                for B in range(num_outputs):
+                    if out_range == 'dynamic':
+                        out_r = tuple(dyn_out_ranges[B])
+                    else:
+                        out_r = out_range
+                    CMs[A, B, :, :] += histogram2d(inputs[:, A].to('cpu').detach().numpy(),
+                                                outputs[:, B].to('cpu').detach().numpy(),
+                                                bins=bins,
+                                                range=hack_range((in_range, out_r)))
         EI = 0.0
         for A in range(num_inputs):
             for B in range(num_outputs):
-                if out_range == 'dynamic':
-                    out_range = (torch.min(outputs[:, B]).item(), torch.max(outputs[:, B]).item())
-                CMS[A, B, :, :] += histogram2d(inputs[:, A].to('cpu').detach().numpy(),
-                                            outputs[:, B].to('cpu').detach().numpy(),
-                                            bins=bins,
-                                            range=hack_range((in_range, out_range)))
-                EI += nats_to_bits(mutual_info_score(None, None, contingency=CMS[A, B, :, :]))
+                EI += nats_to_bits(mutual_info_score(None, None, contingency=CMs[A, B, :, :]))
         EIs.append(EI)
         print("{}: {}".format(SAMPLES_SO_FAR, EI))
         if has_converged(EIs):
@@ -311,7 +328,7 @@ def _EI_of_layer_auto_samples(layer, batch_size, bins, in_shape, in_range, \
         INTERVAL = int(SAMPLES_SO_FAR * (MULTIPLIER - 1))
         SAMPLES_SO_FAR += INTERVAL
         
-
+        
 def EI_of_layer(layer, topology, threshold=0.05, batch_size=20, bins=64, \
         samples=None, in_range=None, out_range=None, activation=None, device='cpu'):
     """Computes the effective information of neural network layer `layer`.
@@ -393,6 +410,8 @@ def sensitivity_of_layer(layer, topology, samples=500, batch_size=20, bins=64, \
 
     Returns:
         float: an estimate of the sensitivity of layer `layer`
+
+    TODO: add dynamic out_range support
     """
     def indices_and_batch_sizes():
         if batch_size > samples:

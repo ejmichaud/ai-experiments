@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ei import MI, _sample_sizes, _indices_and_batch_sizes
+from ei import MI, _chunk_sizes, _indices_and_batch_sizes
 
 
 #######################################
@@ -52,155 +52,155 @@ def test_MI_4():
 
 
 #######################################
-#        _sample_sizes tests          #
+#        _chunk_sizes tests          #
 #######################################
-def test_sample_sizes_0():
+def test_chunk_sizes_0():
     samples = 20
     num_inputs = 4
     limit = 10
     correct_sequence = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
-    generated_sequence = list(_sample_sizes(samples, num_inputs, 1, limit))
+    generated_sequence = list(_chunk_sizes(samples, num_inputs, 1, limit))
     assert len(correct_sequence) == len(generated_sequence)
     for i in range(len(correct_sequence)):
         assert correct_sequence[i] == generated_sequence[i]
 
-def test_sample_sizes_1():
+def test_chunk_sizes_1():
     samples = 10
     num_inputs = 3
     limit = 10
     correct_sequence = [3, 3, 3, 1]
-    generated_sequence = list(_sample_sizes(samples, num_inputs, 1, limit))
+    generated_sequence = list(_chunk_sizes(samples, num_inputs, 1, limit))
     assert len(correct_sequence) == len(generated_sequence)
     for i in range(len(correct_sequence)):
         assert correct_sequence[i] == generated_sequence[i]
 
-def test_sample_sizes_2():
+def test_chunk_sizes_2():
     samples = 11
     num_inputs = 5
     limit = 14
     correct_sequence = [2, 2, 2, 2, 2, 1]
-    generated_sequence = list(_sample_sizes(samples, num_inputs, 1, limit))
+    generated_sequence = list(_chunk_sizes(samples, num_inputs, 1, limit))
     assert len(correct_sequence) == len(generated_sequence)
     for i in range(len(correct_sequence)):
         assert correct_sequence[i] == generated_sequence[i]
 
-def test_sample_sizes_3():
+def test_chunk_sizes_3():
     samples = 20
     num_inputs = 5
     limit = 23
     correct_sequence = [4, 4, 4, 4, 4]
-    generated_sequence = list(_sample_sizes(samples, num_inputs, 1, limit))
+    generated_sequence = list(_chunk_sizes(samples, num_inputs, 1, limit))
     assert len(correct_sequence) == len(generated_sequence)
     for i in range(len(correct_sequence)):
         assert correct_sequence[i] == generated_sequence[i]
 
-def test_sample_sizes_4():
+def test_chunk_sizes_4():
     samples = 20
     num_inputs = 5
     limit = 100
     correct_sequence = [20]
-    generated_sequence = list(_sample_sizes(samples, num_inputs, 1, limit))
+    generated_sequence = list(_chunk_sizes(samples, num_inputs, 1, limit))
     assert len(correct_sequence) == len(generated_sequence)
     for i in range(len(correct_sequence)):
         assert correct_sequence[i] == generated_sequence[i]
 
-def test_sample_sizes_5():
+def test_chunk_sizes_5():
     samples = 20
     num_inputs = 5
     limit = 101
     correct_sequence = [20]
-    generated_sequence = list(_sample_sizes(samples, num_inputs, 1, limit))
+    generated_sequence = list(_chunk_sizes(samples, num_inputs, 1, limit))
     assert len(correct_sequence) == len(generated_sequence)
     for i in range(len(correct_sequence)):
         assert correct_sequence[i] == generated_sequence[i]
 
-def test_sample_sizes_6():
+def test_chunk_sizes_6():
     samples = 20
     num_inputs = 5
     limit = 99
     correct_sequence = [19, 1]
-    generated_sequence = list(_sample_sizes(samples, num_inputs, 1, limit))
+    generated_sequence = list(_chunk_sizes(samples, num_inputs, 1, limit))
     assert len(correct_sequence) == len(generated_sequence)
     for i in range(len(correct_sequence)):
         assert correct_sequence[i] == generated_sequence[i]
 
-def test_sample_sizes_7():
+def test_chunk_sizes_7():
     samples = 50
     num_inputs = 5
     limit = 99
     correct_sequence = [19, 19, 12]
-    generated_sequence = list(_sample_sizes(samples, num_inputs, 1, limit))
+    generated_sequence = list(_chunk_sizes(samples, num_inputs, 1, limit))
     assert len(correct_sequence) == len(generated_sequence)
     for i in range(len(correct_sequence)):
         assert correct_sequence[i] == generated_sequence[i]
 
-def test_sample_sizes_8():
+def test_chunk_sizes_8():
     samples = 10
     num_inputs = 5
     limit = 100
     correct_sequence = [10]
-    generated_sequence = list(_sample_sizes(samples, num_inputs, 1, limit))
+    generated_sequence = list(_chunk_sizes(samples, num_inputs, 1, limit))
     assert len(correct_sequence) == len(generated_sequence)
     for i in range(len(correct_sequence)):
         assert correct_sequence[i] == generated_sequence[i]
 
-def test_sample_sizes_9():
+def test_chunk_sizes_9():
     samples = 10
     num_inputs = 5
     num_outputs = 10
     limit = 100
     correct_sequence = [10]
-    generated_sequence = list(_sample_sizes(samples, num_inputs, num_outputs, limit))
+    generated_sequence = list(_chunk_sizes(samples, num_inputs, num_outputs, limit))
     assert len(correct_sequence) == len(generated_sequence)
     for i in range(len(correct_sequence)):
         assert correct_sequence[i] == generated_sequence[i]
 
-def test_sample_sizes_10():
+def test_chunk_sizes_10():
     samples = 10
     num_inputs = 5
     num_outputs = 20
     limit = 100
     correct_sequence = [5, 5]
-    generated_sequence = list(_sample_sizes(samples, num_inputs, num_outputs, limit))
+    generated_sequence = list(_chunk_sizes(samples, num_inputs, num_outputs, limit))
     assert len(correct_sequence) == len(generated_sequence)
     for i in range(len(correct_sequence)):
         assert correct_sequence[i] == generated_sequence[i]
 
-def test_sample_sizes_11():
+def test_chunk_sizes_11():
     samples = 10
     num_inputs = 5
     num_outputs = 25
     limit = 100
     correct_sequence = [4, 4, 2]
-    generated_sequence = list(_sample_sizes(samples, num_inputs, num_outputs, limit))
+    generated_sequence = list(_chunk_sizes(samples, num_inputs, num_outputs, limit))
     assert len(correct_sequence) == len(generated_sequence)
     for i in range(len(correct_sequence)):
         assert correct_sequence[i] == generated_sequence[i]
 
-def test_sample_sizes_12():
+def test_chunk_sizes_12():
     samples = 25
     num_inputs = 5
     num_outputs = 15
     limit = 100
     correct_sequence = [6, 6, 6, 6, 1]
-    generated_sequence = list(_sample_sizes(samples, num_inputs, num_outputs, limit))
+    generated_sequence = list(_chunk_sizes(samples, num_inputs, num_outputs, limit))
     assert len(correct_sequence) == len(generated_sequence)
     for i in range(len(correct_sequence)):
         assert correct_sequence[i] == generated_sequence[i]
 
-def test_sample_sizes_13():
+def test_chunk_sizes_13():
     samples = 25
     num_inputs = 15
     num_outputs = 5
     limit = 100
     correct_sequence = [6, 6, 6, 6, 1]
-    generated_sequence = list(_sample_sizes(samples, num_inputs, num_outputs, limit))
+    generated_sequence = list(_chunk_sizes(samples, num_inputs, num_outputs, limit))
     assert len(correct_sequence) == len(generated_sequence)
     for i in range(len(correct_sequence)):
         assert correct_sequence[i] == generated_sequence[i]
 
 #######################################
-#        _sample_sizes tests          #
+#        _chunk_sizes tests          #
 #######################################
 def test_indices_and_batch_sizes_0():
     samples = 10
