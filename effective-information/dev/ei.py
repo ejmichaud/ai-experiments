@@ -166,42 +166,61 @@ def topology_of(model, input):
 
 MEMORY_LIMIT = 250000000 # 250 million floats
 
+def _sample_sizes(samples, num_inputs, limit):
+    """Generator for noise tensor sizes. 
+
+    Sometimes, the input and output matrices are too big to store
+    on the GPU, so we have to divide up samples into smaller
+    chunks and evaluate on them. If samples * num_inputs <= limit,
+    then just yields samples. Otherwise breaks samples into
+    chunks of size limit // num_inputs, and also yields the remainder.
+    """
+    size = limit // num_inputs
+    for _ in range(size, samples+1, size):
+        yield size
+    if size > samples:
+        yield samples
+    remainder = samples % size
+    if remainder and num_inputs * samples >= limit:
+        yield remainder
+
+
+def _indices_and_batch_sizes(samples, batch_size):
+    """Generator for batch sizes and indices into noise input
+    and output tensors.
+
+    Divides `samples` into chunks of size batch_size. Yields a
+    tuple of indices, and also a batch size. Includes the remainder.
+    """
+    if batch_size > samples:
+        yield (0, samples), samples
+    start, end = 0, batch_size
+    for _ in range(batch_size, samples+1, batch_size):
+        yield (start, end), batch_size
+        start, end = end, end + batch_size
+    last_batch = samples % batch_size
+    if last_batch and batch_size <= samples:
+        yield (samples-last_batch, samples), last_batch
+
+
 def _EI_of_layer_manual_samples(layer, samples, batch_size, bins, in_shape, in_range, \
     out_shape, out_range, activation, device):
     """Helper function for EI_of_layer that computes the EI of layer `layer`
     with a set number of samples."""
-    def indices_and_batch_sizes(samples, batch_size):
-        if batch_size > samples:
-            yield (0, samples), samples
-        start, end = 0, batch_size
-        for _ in range(batch_size, samples+1, batch_size):
-            yield (start, end), batch_size
-            start, end = end, end + batch_size
-        last_batch = samples % batch_size
-        if last_batch and batch_size <= samples:
-            yield (samples-last_batch, samples), last_batch
-   
     in_u, in_l = in_range
     num_inputs = reduce(lambda x, y: x * y, in_shape)
     num_outputs = reduce(lambda x, y: x * y, out_shape)
 
-    def sample_sizes(samples):
-        if num_inputs * samples <= MEMORY_LIMIT:
-            yield samples
-        size = MEMORY_LIMIT // num_inputs
-        for _ in range(size, samples+1, size):
-            yield size
-        last_size = samples % size
-        if last_size and num_inputs * samples > MEMORY_LIMIT:
-            yield last_size
     CMS = np.zeros((num_inputs, num_outputs, bins, bins)) # histograms for each input/output pair
+    if out_range == 'dynamic':
+        dyn_out_ranges = np.zeros((num_outputs, 2))
+        dyn_ranges_set = False
 
-
-    for section_size in sample_sizes(samples):
+    for section_size in _sample_sizes(samples, num_inputs, MEMORY_LIMIT):
         print(section_size)
         inputs = torch.zeros((section_size, *in_shape), device=device)
         outputs = torch.zeros((section_size, *out_shape), device=device)
-        for (i0, i1), bsize in indices_and_batch_sizes(section_size, batch_size):
+        for (i0, i1), bsize in _indices_and_batch_sizes(section_size, batch_size):
             sample = (in_u - in_l) * torch.rand((bsize, *in_shape), device=device) + in_l
             inputs[i0:i1] = sample
             with torch.no_grad():
@@ -209,23 +228,29 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, bins, in_shape, in_r
             outputs[i0:i1] = result
         inputs = torch.flatten(inputs, start_dim=1)
         outputs = torch.flatten(outputs, start_dim=1)
+        if out_range == 'dynamic' and not dyn_ranges_set:
+            for B in range(num_outputs):
+                out_l = torch.min(outputs[:, B]).item()
+                out_u = torch.max(outputs[:, B]).item()
+                dyn_out_ranges[B][0] = out_l
+                dyn_out_ranges[B][1] = out_u
+            dyn_ranges_set = True
+
         for A in range(num_inputs):
             for B in range(num_outputs):
                 if out_range == 'dynamic':
-                    out_range = (torch.min(outputs[:, B]).item(), torch.max(outputs[:, B]).item())
+                    out_r = tuple(dyn_out_ranges[B])
+                else:
+                    out_r = out_range
                 CMS[A, B, :, :] += histogram2d(inputs[:, A].to('cpu').detach().numpy(),
                                             outputs[:, B].to('cpu').detach().numpy(),
                                             bins=bins,
-                                            range=hack_range((in_range, out_range)))
+                                            range=hack_range((in_range, out_r)))
     EI = 0.0
     for A in range(num_inputs):
         for B in range(num_outputs):
             EI += nats_to_bits(mutual_info_score(None, None, contingency=CMS[A, B, :, :]))
     return EI
-
-
-"""Note: I currently don't handle relu inputs dynamically. So if the preceeding layer is
-a relu, I have no idea what range to use."""
 
 
 def _EI_of_layer_auto_samples(layer, batch_size, bins, in_shape, in_range, \
@@ -247,17 +272,6 @@ def _EI_of_layer_auto_samples(layer, batch_size, bins, in_shape, in_range, \
         if error / EIs[-1] > threshold:
             return False
         return True
-
-    def indices_and_batch_sizes():
-        if batch_size > INTERVAL:
-            yield (0, INTERVAL), INTERVAL
-        start, end = 0, batch_size
-        for _ in range(batch_size, INTERVAL+1, batch_size):
-            yield (start, end), batch_size
-            start, end = end, end + batch_size
-        last_batch = INTERVAL % batch_size
-        if last_batch and batch_size <= INTERVAL:
-            yield (INTERVAL-last_batch, INTERVAL), last_batch
     
     in_u, in_l = in_range
     num_inputs = reduce(lambda x, y: x * y, in_shape)
