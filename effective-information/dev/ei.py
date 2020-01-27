@@ -220,7 +220,6 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, bins, in_shape, in_r
         dyn_ranges_set = False
 
     for chunk_size in _chunk_sizes(samples, num_inputs, num_outputs, MEMORY_LIMIT):
-        print(chunk_size)
         inputs = torch.zeros((chunk_size, *in_shape), device=device)
         outputs = torch.zeros((chunk_size, *out_shape), device=device)
         for (i0, i1), bsize in _indices_and_batch_sizes(chunk_size, batch_size):
@@ -288,7 +287,6 @@ def _EI_of_layer_auto_samples(layer, batch_size, bins, in_shape, in_range, \
 
     while True:
         for chunk_size in _chunk_sizes(INTERVAL, num_inputs, num_outputs, MEMORY_LIMIT):
-            print(chunk_size)
             inputs = torch.zeros((chunk_size, *in_shape), device=device)
             outputs = torch.zeros((chunk_size, *out_shape), device=device)
             for (i0, i1), bsize in _indices_and_batch_sizes(chunk_size, batch_size):
@@ -322,7 +320,6 @@ def _EI_of_layer_auto_samples(layer, batch_size, bins, in_shape, in_range, \
             for B in range(num_outputs):
                 EI += nats_to_bits(mutual_info_score(None, None, contingency=CMs[A, B, :, :]))
         EIs.append(EI)
-        print("{}: {}".format(SAMPLES_SO_FAR, EI))
         if has_converged(EIs):
             return EIs[-1]
         INTERVAL = int(SAMPLES_SO_FAR * (MULTIPLIER - 1))
