@@ -212,7 +212,7 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, 
 
     in_bin_width = (in_u - in_l) / in_bins
     if out_bins != 'dynamic':
-        CMs = np.zeros((num_inputs, num_outputs, bins, bins)) # histograms for each input/output pair
+        CMs = np.zeros((num_inputs, num_outputs, in_bins, out_bins)) # histograms for each input/output pair
     else:
         CMs = [[None for B in range(num_outputs)] for A in range(num_inputs)]
         if out_range == 'dynamic':
@@ -249,14 +249,13 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, 
                     bins = int((out_u - out_l) / in_bin_width) + 1
                     out_u = out_l + (bins * in_bin_width)
                     dyn_out_bins[B] = bins
-                    dyn_out_ranges[1] = out_u
+                    dyn_out_ranges[B][1] = out_u
             else:
                 out_l, out_u = out_range
                 bins = int((out_u - out_l) / in_bin_width) + 1
                 out_u = out_l + (bins * in_bin_width)
                 dyn_out_bins = bins
                 out_range = (out_l, out_u)
-            dyn_out_bins_set = True
             for A in range(num_inputs):
                 for B in range(num_outputs):
                     if out_range == 'dynamic':
@@ -264,6 +263,7 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, 
                     else:
                         out_b = dyn_out_bins
                     CMs[A][B] = np.zeros((in_bins, out_b))
+            dyn_out_bins_set = True
 
         for A in range(num_inputs):
             for B in range(num_outputs):
@@ -271,16 +271,20 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, 
                     out_r = tuple(dyn_out_ranges[B])
                 else:
                     out_r = out_range
-                in_b = in_bins
                 if out_bins == 'dynamic':
                     if out_range == 'dynamic':
                         out_b = dyn_out_bins[B]
-                    out_b = dyn_out_bins
+                    else:
+                        out_b = dyn_out_bins
                 else:
                     out_b = out_bins
+                # print("in_range: {}".format(in_range))
+                # print("in_bins: {}".format(in_bins))
+                # print("out_range: {}".format(out_r))
+                # print("out_bins: {}".format(out_b))
                 CMs[A][B] += histogram2d(inputs[:, A].to('cpu').detach().numpy(),
                                             outputs[:, B].to('cpu').detach().numpy(),
-                                            bins=(in_b, out_b),
+                                            bins=(in_bins, out_b),
                                             range=hack_range((in_range, out_r)))
     EI = 0.0
     for A in range(num_inputs):
@@ -360,7 +364,7 @@ def _EI_of_layer_auto_samples(layer, batch_size, in_shape, in_range, in_bins, \
         SAMPLES_SO_FAR += INTERVAL
         
         
-def ei_of_layer(layer, topology, threshold=0.05, batch_size=20, in_bins=64, out_bins=64
+def ei_of_layer(layer, topology, threshold=0.05, batch_size=20, in_bins=64, out_bins=64, \
         samples=None, in_range=None, out_range=None, activation=None, device='cpu'):
     """Computes the effective information of neural network layer `layer`.
 
@@ -405,22 +409,22 @@ def ei_of_layer(layer, topology, threshold=0.05, batch_size=20, in_bins=64, out_
         return _EI_of_layer_manual_samples(layer=layer, 
             samples=samples, 
             batch_size=batch_size,
-            bins=bins,
             in_shape=in_shape,
             in_range=in_range,
             in_bins=in_bins,
             out_shape=out_shape,
             out_range=out_range,
-            out_bins=out_bins
+            out_bins=out_bins,
             activation=activation,
             device=device)
     return _EI_of_layer_auto_samples(layer=layer,
                 batch_size=batch_size,
-                bins=bins,
                 in_shape=in_shape,
                 in_range=in_range,
+                in_bins=in_bins,
                 out_shape=out_shape,
                 out_range=out_range,
+                out_bins=out_bins,
                 activation=activation,
                 device=device,
                 threshold=threshold)
