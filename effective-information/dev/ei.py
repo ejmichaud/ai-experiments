@@ -11,10 +11,6 @@ import torch
 import torch.nn as nn
 
 
-class IncompatibleArgumentError(ValueError):
-    pass
-
-
 def hack_range(range):
         """This version of fast_histogram handles edge cases differently
         than numpy, so we have to slightly adjust the bins."""
@@ -206,15 +202,23 @@ def _indices_and_batch_sizes(samples, batch_size):
         yield (samples-last_batch, samples), last_batch
 
 
-def _EI_of_layer_manual_samples(layer, samples, batch_size, bins, in_shape, in_range, \
-    out_shape, out_range, activation, device):
+def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, in_bins, \
+    out_shape, out_range, out_bins, activation, device):
     """Helper function for EI_of_layer that computes the EI of layer `layer`
     with a set number of samples."""
-    in_u, in_l = in_range
+    in_l, in_u = in_range
     num_inputs = reduce(lambda x, y: x * y, in_shape)
     num_outputs = reduce(lambda x, y: x * y, out_shape)
 
-    CMs = np.zeros((num_inputs, num_outputs, bins, bins)) # histograms for each input/output pair
+    in_bin_width = (in_u - in_l) / in_bins
+    if out_bins != 'dynamic':
+        CMs = np.zeros((num_inputs, num_outputs, bins, bins)) # histograms for each input/output pair
+    else:
+        CMs = [[None for B in range(num_outputs)] for A in range(num_inputs)]
+        if out_range == 'dynamic':
+            dyn_out_bins = [None for B in range(num_outputs)]
+        dyn_out_bins_set = False
+
     if out_range == 'dynamic':
         dyn_out_ranges = np.zeros((num_outputs, 2))
         dyn_ranges_set = False
@@ -238,25 +242,55 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, bins, in_shape, in_r
                 dyn_out_ranges[B][1] = out_u
             dyn_ranges_set = True
 
+        if out_bins == 'dynamic' and not dyn_out_bins_set:
+            if out_range == 'dynamic':
+                for B in range(num_outputs):
+                    out_l, out_u = dyn_out_ranges[B]
+                    bins = int((out_u - out_l) / in_bin_width) + 1
+                    out_u = out_l + (bins * in_bin_width)
+                    dyn_out_bins[B] = bins
+                    dyn_out_ranges[1] = out_u
+            else:
+                out_l, out_u = out_range
+                bins = int((out_u - out_l) / in_bin_width) + 1
+                out_u = out_l + (bins * in_bin_width)
+                dyn_out_bins = bins
+                out_range = (out_l, out_u)
+            dyn_out_bins_set = True
+            for A in range(num_inputs):
+                for B in range(num_outputs):
+                    if out_range == 'dynamic':
+                        out_b = dyn_out_bins[B]
+                    else:
+                        out_b = dyn_out_bins
+                    CMs[A][B] = np.zeros((in_bins, out_b))
+
         for A in range(num_inputs):
             for B in range(num_outputs):
                 if out_range == 'dynamic':
                     out_r = tuple(dyn_out_ranges[B])
                 else:
                     out_r = out_range
-                CMs[A, B, :, :] += histogram2d(inputs[:, A].to('cpu').detach().numpy(),
+                in_b = in_bins
+                if out_bins == 'dynamic':
+                    if out_range == 'dynamic':
+                        out_b = dyn_out_bins[B]
+                    out_b = dyn_out_bins
+                else:
+                    out_b = out_bins
+                CMs[A][B] += histogram2d(inputs[:, A].to('cpu').detach().numpy(),
                                             outputs[:, B].to('cpu').detach().numpy(),
-                                            bins=bins,
+                                            bins=(in_b, out_b),
                                             range=hack_range((in_range, out_r)))
     EI = 0.0
     for A in range(num_inputs):
         for B in range(num_outputs):
-            EI += nats_to_bits(mutual_info_score(None, None, contingency=CMs[A, B, :, :]))
+            EI += nats_to_bits(mutual_info_score(None, None, contingency=CMs[A][B]))
     return EI
 
 
-def _EI_of_layer_auto_samples(layer, batch_size, bins, in_shape, in_range, \
-    out_shape, out_range, activation, device, threshold):
+def _EI_of_layer_auto_samples(layer, batch_size, in_shape, in_range, in_bins, \
+    out_shape, out_range, out_bins, activation, device, threshold):
     """Helper function of EI_of_layer that computes the EI of layer `layer`
     using enough samples to be within `threshold`% of the true value. 
 
@@ -275,7 +309,7 @@ def _EI_of_layer_auto_samples(layer, batch_size, bins, in_shape, in_range, \
             return False
         return True
     
-    in_u, in_l = in_range
+    in_l, in_u = in_range
     num_inputs = reduce(lambda x, y: x * y, in_shape)
     num_outputs = reduce(lambda x, y: x * y, out_shape)
 
@@ -326,7 +360,7 @@ def _EI_of_layer_auto_samples(layer, batch_size, bins, in_shape, in_range, \
         SAMPLES_SO_FAR += INTERVAL
         
         
-def EI_of_layer(layer, topology, threshold=0.05, batch_size=20, bins=64, \
+def ei_of_layer(layer, topology, threshold=0.05, batch_size=20, in_bins=64, out_bins=64
         samples=None, in_range=None, out_range=None, activation=None, device='cpu'):
     """Computes the effective information of neural network layer `layer`.
 
@@ -374,8 +408,10 @@ def EI_of_layer(layer, topology, threshold=0.05, batch_size=20, bins=64, \
             bins=bins,
             in_shape=in_shape,
             in_range=in_range,
+            in_bins=in_bins,
             out_shape=out_shape,
             out_range=out_range,
+            out_bins=out_bins
             activation=activation,
             device=device)
     return _EI_of_layer_auto_samples(layer=layer,
