@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 
-from math import log
+from math import log, log2
 from functools import reduce
 
 import numpy as np
@@ -203,7 +203,7 @@ def _indices_and_batch_sizes(samples, batch_size):
 
 
 def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, in_bins, \
-    out_shape, out_range, out_bins, activation, device):
+    out_shape, out_range, out_bins, activation, device, normalize):
     """Helper function for EI_of_layer that computes the EI of layer `layer`
     with a set number of samples."""
     in_l, in_u = in_range
@@ -289,15 +289,26 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, 
     EI = 0.0
     for A in range(num_inputs):
         for B in range(num_outputs):
-            EI += nats_to_bits(mutual_info_score(None, None, contingency=CMs[A][B]))
+            A_B_EI = nats_to_bits(mutual_info_score(None, None, contingency=CMs[A][B]))
+            if normalize:
+                if out_bins == 'dynamic':
+                    if out_range == 'dynamic':
+                        out_b = dyn_out_bins[B]
+                    else:
+                        out_b = dyn_out_bins
+                else:
+                    out_b = out_bins
+                A_B_EI = A_B_EI / log2(out_b)
+            EI += A_B_EI
     return EI
 
 
 def _EI_of_layer_auto_samples(layer, batch_size, in_shape, in_range, in_bins, \
-    out_shape, out_range, out_bins, activation, device, threshold):
+    out_shape, out_range, out_bins, activation, device, threshold, normalize):
     """Helper function of EI_of_layer that computes the EI of layer `layer`
     using enough samples to be within `threshold`% of the true value. 
 
+    TODO: add support for dynamic binning and normalization
 
     """
     MULTIPLIER = 2
@@ -365,7 +376,7 @@ def _EI_of_layer_auto_samples(layer, batch_size, in_shape, in_range, in_bins, \
         
         
 def ei_of_layer(layer, topology, threshold=0.05, batch_size=20, in_bins=64, out_bins=64, \
-        samples=None, in_range=None, out_range=None, activation=None, device='cpu'):
+        samples=None, in_range=None, out_range=None, activation=None, device='cpu', normalize=False):
     """Computes the effective information of neural network layer `layer`.
 
     Args:
@@ -416,7 +427,8 @@ def ei_of_layer(layer, topology, threshold=0.05, batch_size=20, in_bins=64, out_
             out_range=out_range,
             out_bins=out_bins,
             activation=activation,
-            device=device)
+            device=device,
+            normalize=normalize)
     return _EI_of_layer_auto_samples(layer=layer,
                 batch_size=batch_size,
                 in_shape=in_shape,
@@ -427,7 +439,8 @@ def ei_of_layer(layer, topology, threshold=0.05, batch_size=20, in_bins=64, out_
                 out_bins=out_bins,
                 activation=activation,
                 device=device,
-                threshold=threshold)
+                threshold=threshold,
+                normalize=normalize)
 
 
 def sensitivity_of_layer(layer, topology, samples=500, batch_size=20, bins=64, \
