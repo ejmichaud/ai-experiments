@@ -210,6 +210,9 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, 
     num_inputs = reduce(lambda x, y: x * y, in_shape)
     num_outputs = reduce(lambda x, y: x * y, out_shape)
 
+    #################################################
+    #    Create histograms for each A -> B pair     #
+    #################################################
     in_bin_width = (in_u - in_l) / in_bins
     if out_bins != 'dynamic':
         CMs = np.zeros((num_inputs, num_outputs, in_bins, out_bins)) # histograms for each input/output pair
@@ -224,8 +227,14 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, 
         dyn_ranges_set = False
 
     for chunk_size in _chunk_sizes(samples, num_inputs, num_outputs, MEMORY_LIMIT):
+        #################################################
+        #   Create buffers for layer input and output   #
+        #################################################
         inputs = torch.zeros((chunk_size, *in_shape), device=device)
         outputs = torch.zeros((chunk_size, *out_shape), device=device)
+        #################################################
+        #           Evaluate module on noise            #
+        #################################################
         for (i0, i1), bsize in _indices_and_batch_sizes(chunk_size, batch_size):
             sample = (in_u - in_l) * torch.rand((bsize, *in_shape), device=device) + in_l
             inputs[i0:i1] = sample
@@ -234,6 +243,11 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, 
             outputs[i0:i1] = result
         inputs = torch.flatten(inputs, start_dim=1)
         outputs = torch.flatten(outputs, start_dim=1)
+        #################################################
+        #    If specified to be dynamic,                #
+        #    and first time in the loop,                #
+        #    determine out_range for output neurons     #
+        #################################################
         if out_range == 'dynamic' and not dyn_ranges_set:
             for B in range(num_outputs):
                 out_l = torch.min(outputs[:, B]).item()
@@ -241,7 +255,11 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, 
                 dyn_out_ranges[B][0] = out_l
                 dyn_out_ranges[B][1] = out_u
             dyn_ranges_set = True
-
+        #################################################
+        #    If specified to be dynamic,                #
+        #    and first time in the loop,                #
+        #    determine out_bins for output neurons      #
+        #################################################        
         if out_bins == 'dynamic' and not dyn_out_bins_set:
             if out_range == 'dynamic':
                 for B in range(num_outputs):
@@ -264,7 +282,9 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, 
                         out_b = dyn_out_bins
                     CMs[A][B] = np.zeros((in_bins, out_b))
             dyn_out_bins_set = True
-
+        #################################################
+        #     Update Histograms for each A -> B pair    #
+        #################################################
         for A in range(num_inputs):
             for B in range(num_outputs):
                 if out_range == 'dynamic':
@@ -286,6 +306,9 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, 
                                             outputs[:, B].to('cpu').detach().numpy(),
                                             bins=(in_bins, out_b),
                                             range=hack_range((in_range, out_r)))
+    #################################################
+    #           Compute mutual information          #
+    #################################################
     EI = 0.0
     for A in range(num_inputs):
         for B in range(num_outputs):
@@ -294,17 +317,16 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, 
     return EI
 
 
+
 def _EI_of_layer_auto_samples(layer, batch_size, in_shape, in_range, in_bins, \
     out_shape, out_range, out_bins, activation, device, threshold):
     """Helper function of EI_of_layer that computes the EI of layer `layer`
     using enough samples to be within `threshold`% of the true value. 
-
-    TODO: add support for dynamic binning
-
     """
     MULTIPLIER = 2
     INTERVAL = 10000
     SAMPLES_SO_FAR = INTERVAL
+    EIs = []
 
     def has_converged(EIs):
         if len(EIs) < 2:
@@ -319,8 +341,9 @@ def _EI_of_layer_auto_samples(layer, batch_size, in_shape, in_range, in_bins, \
     num_inputs = reduce(lambda x, y: x * y, in_shape)
     num_outputs = reduce(lambda x, y: x * y, out_shape)
 
-    EIs = []
-
+    #################################################
+    #    Create histograms for each A -> B pair     #
+    #################################################
     in_bin_width = (in_u - in_l) / in_bins
     if out_bins != 'dynamic':
         CMs = np.zeros((num_inputs, num_outputs, in_bins, out_bins)) # histograms for each input/output pair
@@ -336,8 +359,14 @@ def _EI_of_layer_auto_samples(layer, batch_size, in_shape, in_range, in_bins, \
 
     while True:
         for chunk_size in _chunk_sizes(INTERVAL, num_inputs, num_outputs, MEMORY_LIMIT):
+            #################################################
+            #   Create buffers for layer input and output   #
+            #################################################
             inputs = torch.zeros((chunk_size, *in_shape), device=device)
             outputs = torch.zeros((chunk_size, *out_shape), device=device)
+            #################################################
+            #           Evaluate module on noise            #
+            #################################################
             for (i0, i1), bsize in _indices_and_batch_sizes(chunk_size, batch_size):
                 sample = (in_u - in_l) * torch.rand((bsize, *in_shape), device=device) + in_l
                 inputs[i0:i1] = sample
@@ -346,7 +375,11 @@ def _EI_of_layer_auto_samples(layer, batch_size, in_shape, in_range, in_bins, \
                 outputs[i0:i1] = result
             inputs = torch.flatten(inputs, start_dim=1)
             outputs = torch.flatten(outputs, start_dim=1)
-            
+            #################################################
+            #    If specified to be dynamic,                #
+            #    and first time in the loop,                #
+            #    determine out_range for output neurons     #
+            #################################################
             if out_range == 'dynamic' and not dyn_ranges_set:
                 for B in range(num_outputs):
                     out_l = torch.min(outputs[:, B]).item()
@@ -354,7 +387,11 @@ def _EI_of_layer_auto_samples(layer, batch_size, in_shape, in_range, in_bins, \
                     dyn_out_ranges[B][0] = out_l
                     dyn_out_ranges[B][1] = out_u
                 dyn_ranges_set = True
-
+            #################################################
+            #    If specified to be dynamic,                #
+            #    and first time in the loop,                #
+            #    determine out_bins for output neurons      #
+            #################################################
             if out_bins == 'dynamic' and not dyn_out_bins_set:
                 if out_range == 'dynamic':
                     for B in range(num_outputs):
@@ -377,7 +414,9 @@ def _EI_of_layer_auto_samples(layer, batch_size, in_shape, in_range, in_bins, \
                             out_b = dyn_out_bins
                         CMs[A][B] = np.zeros((in_bins, out_b))
                 dyn_out_bins_set = True
-
+            #################################################
+            #     Update Histograms for each A -> B pair    #
+            #################################################
             for A in range(num_inputs):
                 for B in range(num_outputs):
                     if out_range == 'dynamic':
@@ -395,31 +434,41 @@ def _EI_of_layer_auto_samples(layer, batch_size, in_shape, in_range, in_bins, \
                                                 outputs[:, B].to('cpu').detach().numpy(),
                                                 bins=(in_bins, out_b),
                                                 range=hack_range((in_range, out_r)))
+        #################################################
+        #           Compute mutual information          #
+        #################################################
         EI = 0.0
         for A in range(num_inputs):
             for B in range(num_outputs):
                 A_B_EI = nats_to_bits(mutual_info_score(None, None, contingency=CMs[A][B]))
                 EI += A_B_EI        
-        
         EIs.append(EI)
+        #################################################
+        #        Determine whether more samples         #
+        #        are needed and update how many         #
+        #################################################
         if has_converged(EIs):
             return EIs[-1]
         INTERVAL = int(SAMPLES_SO_FAR * (MULTIPLIER - 1))
         SAMPLES_SO_FAR += INTERVAL
         
-        
-def ei_of_layer(layer, topology, threshold=0.05, batch_size=20, in_bins=64, out_bins=64, \
-        samples=None, in_range=None, out_range=None, activation=None, device='cpu'):
+    
+def ei_of_layer(layer, topology, threshold=0.05, samples=None, batch_size=20, 
+    in_range=None, in_bins=64, \
+    out_range=None, out_bins, 
+    activation=None, device='cpu'):
     """Computes the effective information of neural network layer `layer`.
 
     Args:
         layer (nn.Module): a module in `topology`
         topology (dict): topology object (nested dictionary) returned from topology_of function
-        samples (int): the number of noise samples run through `layer`
+        threshold (float): used to dynamically determine how many samples to use.
+        samples (int): if specified (defaults to None), function will manually use this many samples, which may or may not give good convergence.
         batch_size (int): the number of samples to run `layer` on simultaneously
-        bins (int): the number of bins to discretize in_range and out_range into for MI calculation
-        in_range (tuple): (lower_bound, upper_bound) by default determined from `topology`
-        out_range (tuple): (lower_bound, upper_bound) by default determined from `topology`
+        in_range (tuple): (lower_bound, upper_bound), inclusive, by default determined from `topology`
+        in_bins (int): the number of bins to discretize in_range into for MI calculation
+        out_range (tuple): (lower_bound, upper_bound), inclusive, by default determined from `topology`
+        out_bins (int): the number of bins to discretize out_range into for MI calculation
         activation (function): the output activation of `layer`, by defualt determined from `topology`
         device: 'cpu' or 'cuda' or `torch.device` instance
 
@@ -431,12 +480,12 @@ def ei_of_layer(layer, topology, threshold=0.05, batch_size=20, in_bins=64, out_
     #   Determine shapes, ranges, and activations   #
     #################################################
     in_shape = topology[layer]["input"]["shape"][1:]
+    out_shape = topology[layer]["output"]["shape"][1:]
     if in_range == 'dynamic':
         raise ValueError("Input range cannot be dynamic, only output range can be.")
     if in_range is None:
         activation_type = type(topology[layer]["input"]["activation"])
         in_range = VALID_ACTIVATIONS[activation_type]
-    out_shape = topology[layer]["output"]["shape"][1:]
     if out_range is None:
         activation_type = type(topology[layer]["output"]["activation"])
         out_range = VALID_ACTIVATIONS[activation_type]
@@ -474,55 +523,50 @@ def ei_of_layer(layer, topology, threshold=0.05, batch_size=20, in_bins=64, out_
                 threshold=threshold)
 
 
-def sensitivity_of_layer(layer, topology, samples=500, batch_size=20, bins=64, \
-        in_range=None, out_range=None, activation=None, device='cpu'):
+def sensitivity_of_layer(layer, topology, samples=500, batch_size=20,
+        in_range=None, in_bins=64, out_range=None, out_bins=64, activation=None, device='cpu'):
     """Computes the sensitivity of neural network layer `layer`.
+
+    Note that this does not currently support dynamic ranging or binning. There is a
+    good reason for this: because the inputs we run through the network in the
+    sensitivity calculation are very different from the noise run though in the EI
+    calculation, each output neuron's range may be different, and we would be
+    evaluating the sensitivity an EI using a different binning. The dynamic
+    ranging and binning supported by the EI function should be used with
+    great caution.
 
     Args:
         layer (nn.Module): a module in `topology`
         topology (dict): topology object (nested dictionary) returned from topology_of function
         samples (int): the number of noise samples run through `layer`
         batch_size (int): the number of samples to run `layer` on simultaneously
-        bins (int): the number of bins to discretize in_range and out_range into for MI calculation
-        in_range (tuple): (lower_bound, upper_bound) by default determined from `topology`
-        out_range (tuple): (lower_bound, upper_bound) by default determined from `topology`
+        in_range (tuple): (lower_bound, upper_bound), inclusive, by default determined from `topology`
+        in_bins (int): the number of bins to discretize in_range into for MI calculation
+        out_range (tuple): (lower_bound, upper_bound), inclusive, by default determined from `topology`
+        out_bins (int): the number of bins to discretize out_range into for MI calculation
         activation (function): the output activation of `layer`, by defualt determined from `topology`
         device: 'cpu' or 'cuda' or `torch.device` instance
 
     Returns:
         float: an estimate of the sensitivity of layer `layer`
-
-    TODO: add dynamic out_range support
     """
-    def indices_and_batch_sizes():
-        if batch_size > samples:
-            yield (0, samples), samples
-        start, end = 0, batch_size
-        for _ in range(batch_size, samples+1, batch_size):
-            yield (start, end), batch_size
-            start, end = end, end + batch_size
-        last_batch = samples % batch_size
-        if last_batch and batch_size <= samples:
-            yield (samples-last_batch, samples), last_batch
     
     #################################################
     #   Determine shapes, ranges, and activations   #
     #################################################
-    in_shape = topology[layer]["input"]["shape"]
+    in_shape = topology[layer]["input"]["shape"][1:]
+    out_shape = topology[layer]["output"]["shape"][1:]
     if in_range is None:
         activation_type = type(topology[layer]["input"]["activation"])
         in_range = VALID_ACTIVATIONS[activation_type]
-    out_shape = topology[layer]["output"]["shape"]
     if out_range is None:
         activation_type = type(topology[layer]["output"]["activation"])
         out_range = VALID_ACTIVATIONS[activation_type]
-    in_shape, out_shape = in_shape[1:], out_shape[1:]
     in_l, in_u = in_range
     if activation is None:
         activation = topology[layer]["output"]["activation"]
         if activation is None:
             activation = lambda x: x
-    
     #################################################
     #   Create buffers for layer input and output   #
     #################################################
@@ -533,7 +577,10 @@ def sensitivity_of_layer(layer, topology, samples=500, batch_size=20, bins=64, \
 
     sensitivity = 0.0
     for A in range(num_inputs):
-        for (i0, i1), size in indices_and_batch_sizes():
+        #################################################
+        #           Evaluate module on noise            #
+        #################################################
+        for (i0, i1), size in _indices_and_batch_sizes(samples, batch_size):
             sample = torch.zeros((size, num_inputs)).to(device)
             sample[:, A] = (in_u - in_l) * torch.rand((size,), device=device) + in_l
             inputs[i0:i1] = sample
@@ -541,9 +588,14 @@ def sensitivity_of_layer(layer, topology, samples=500, batch_size=20, bins=64, \
                 result = activation(layer(sample.reshape((size, *in_shape))))
             outputs[i0:i1] = result.flatten(start_dim=1)
         for B in range(num_outputs):
-            sensitivity += MI(inputs[:, A].to('cpu'), outputs[:, B].to('cpu'), bins=bins, range=(in_range, out_range))
+            #################################################
+            #           Compute mutual information          #
+            #################################################
+            sensitivity += MI(inputs[:, A].to('cpu'), 
+                outputs[:, B].to('cpu'),
+                bins=(in_bins, out_bins), 
+                range=(in_range, out_range))
         inputs.fill_(0)
         outputs.fill_(0)
     return sensitivity
-
 
