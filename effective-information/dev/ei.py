@@ -202,6 +202,12 @@ def _indices_and_batch_sizes(samples, batch_size):
         yield (samples-last_batch, samples), last_batch
 
 
+def size_normalization(bins):
+    if bins <= 1:
+        return 1
+    return log2(bins)
+
+
 def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, in_bins, \
     out_shape, out_range, out_bins, activation, device, normalize):
     """Helper function for EI_of_layer that computes the EI of layer `layer`
@@ -298,7 +304,7 @@ def _EI_of_layer_manual_samples(layer, samples, batch_size, in_shape, in_range, 
                         out_b = dyn_out_bins
                 else:
                     out_b = out_bins
-                A_B_EI = A_B_EI / log2(out_b)
+                A_B_EI = A_B_EI / size_normalization(out_b)
             EI += A_B_EI
     return EI
 
