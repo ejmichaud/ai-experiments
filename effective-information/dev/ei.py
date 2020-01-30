@@ -455,7 +455,7 @@ def _EI_of_layer_auto_samples(layer, batch_size, in_shape, in_range, in_bins, \
     
 def ei_of_layer(layer, topology, threshold=0.05, samples=None, batch_size=20, 
     in_range=None, in_bins=64, \
-    out_range=None, out_bins, 
+    out_range=None, out_bins=64, 
     activation=None, device='cpu'):
     """Computes the effective information of neural network layer `layer`.
 
